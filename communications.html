@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Communications – Manics Ltd</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="layout">
+  <div id="sidebar-container"></div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-icon" id="menu-toggle">☰</button>
+        <h1 id="page-title">Communications</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-icon" id="dark-toggle">🌙</button>
+      </div>
+    </div>
+    <div class="content">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('all', this)">All</button>
+        <button class="tab" onclick="switchTab('Meeting', this)">📅 Meetings</button>
+        <button class="tab" onclick="switchTab('Email', this)">📧 Emails</button>
+        <button class="tab" onclick="switchTab('Call', this)">📞 Calls</button>
+      </div>
+
+      <div class="toolbar">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="search" placeholder="Search communications..." />
+        </div>
+        <button class="btn btn-primary" onclick="openAdd()">+ Record Communication</button>
+      </div>
+
+      <div id="comms-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="comm-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Record Communication</h3>
+      <button class="btn-icon" onclick="closeModal('comm-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="cm-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Type *</label>
+          <select class="form-control" id="cm-type" onchange="toggleMeetingDate()">
+            <option>Meeting</option><option>Email</option><option>Call</option><option>Note</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Partner *</label>
+          <select class="form-control" id="cm-partner"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Subject *</label>
+        <input type="text" class="form-control" id="cm-subject" required />
+      </div>
+      <div class="form-group" id="meeting-date-group">
+        <label>Meeting Date</label>
+        <input type="date" class="form-control" id="cm-date" />
+      </div>
+      <div class="form-group">
+        <label>Participants</label>
+        <input type="text" class="form-control" id="cm-participants" placeholder="e.g. John Doe, Jane Smith" />
+      </div>
+      <div class="form-group">
+        <label>Message / Notes *</label>
+        <textarea class="form-control" id="cm-message" rows="4" required></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('comm-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveComm()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="assets/app.js"></script>
+<script src="assets/sidebar.js"></script>
+<script>
+let editId = null;
+let currentTab = 'all';
+const typeIcons = { Meeting:'📅', Email:'📧', Call:'📞', Note:'📝' };
+const typeColors = { Meeting:'badge-info', Email:'badge-success', Call:'badge-warning', Note:'badge-muted' };
+
+document.addEventListener('DOMContentLoaded', () => {
+  requireAuth();
+  renderSidebar('Communications');
+  renderGrid();
+  document.getElementById('search').addEventListener('input', renderGrid);
+});
+
+function switchTab(tab, el) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderGrid();
+}
+
+function renderGrid() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const partners = DB.get('partners');
+  let data = DB.get('communications').filter(c => {
+    const p = partners.find(x => x.id === c.partner_id);
+    return (currentTab === 'all' || c.type === currentTab) &&
+           (!q || c.subject.toLowerCase().includes(q) || c.message.toLowerCase().includes(q) || (p?.company_name.toLowerCase().includes(q)));
+  });
+
+  if (!data.length) {
+    document.getElementById('comms-grid').innerHTML = `<div class="empty-state"><div class="icon">💬</div><p>No communications found.</p></div>`;
+    return;
+  }
+
+  document.getElementById('comms-grid').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;">
+      ${data.map(c => {
+        const p = partners.find(x => x.id === c.partner_id);
+        return `<div class="card">
+          <div class="card-body">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+              <span class="badge ${typeColors[c.type]||'badge-muted'}">${typeIcons[c.type]||'💬'} ${c.type}</span>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-sm btn-outline" onclick="editComm(${c.id})">✏️</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteComm(${c.id})">🗑</button>
+              </div>
+            </div>
+            <h4 style="font-size:0.92rem;margin-bottom:6px;">${c.subject}</h4>
+            <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">${c.message.length > 100 ? c.message.slice(0,100)+'…' : c.message}</p>
+            <div style="font-size:0.78rem;color:var(--muted);display:flex;flex-direction:column;gap:3px;">
+              <span>🤝 ${p?.company_name || '—'}</span>
+              ${c.meeting_date ? `<span>📅 ${fmtDate(c.meeting_date)}</span>` : ''}
+              ${c.participants ? `<span>👥 ${c.participants}</span>` : ''}
+              <span>🕐 ${fmtDate(c.created_at)} · ${c.created_by}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function toggleMeetingDate() {
+  const type = document.getElementById('cm-type').value;
+  document.getElementById('meeting-date-group').style.display = (type === 'Meeting' || type === 'Call') ? 'block' : 'none';
+}
+
+function populatePartners(selectedId) {
+  document.getElementById('cm-partner').innerHTML = DB.get('partners').map(p =>
+    `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${p.company_name}</option>`
+  ).join('');
+}
+
+function openAdd() {
+  editId = null;
+  document.getElementById('modal-title').textContent = 'Record Communication';
+  ['cm-id','cm-subject','cm-date','cm-participants','cm-message'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('cm-type').value = 'Meeting';
+  populatePartners(null);
+  toggleMeetingDate();
+  openModal('comm-modal');
+}
+
+function editComm(id) {
+  const c = DB.get('communications').find(x => x.id === id);
+  if (!c) return;
+  editId = id;
+  document.getElementById('modal-title').textContent = 'Edit Communication';
+  document.getElementById('cm-id').value = c.id;
+  document.getElementById('cm-type').value = c.type;
+  document.getElementById('cm-subject').value = c.subject;
+  document.getElementById('cm-date').value = c.meeting_date || '';
+  document.getElementById('cm-participants').value = c.participants || '';
+  document.getElementById('cm-message').value = c.message;
+  populatePartners(c.partner_id);
+  toggleMeetingDate();
+  openModal('comm-modal');
+}
+
+function saveComm() {
+  const subject = document.getElementById('cm-subject').value.trim();
+  const message = document.getElementById('cm-message').value.trim();
+  if (!subject || !message) { toast('Subject and message are required.', 'error'); return; }
+
+  const comms = DB.get('communications');
+  const u = getCurrentUser();
+  const obj = {
+    type: document.getElementById('cm-type').value,
+    partner_id: parseInt(document.getElementById('cm-partner').value),
+    subject, message,
+    meeting_date: document.getElementById('cm-date').value || null,
+    participants: document.getElementById('cm-participants').value.trim(),
+    created_by: u?.fullname || 'Unknown',
+    created_at: new Date().toISOString().split('T')[0]
+  };
+
+  if (editId) {
+    const idx = comms.findIndex(c => c.id === editId);
+    comms[idx] = { ...comms[idx], ...obj };
+    logActivity(`Communication "${subject}" updated`, '✏️');
+    toast('Updated!');
+  } else {
+    obj.id = nextId(comms);
+    comms.push(obj);
+    logActivity(`${obj.type} recorded: "${subject}"`, typeIcons[obj.type] || '💬');
+    toast('Communication recorded!');
+  }
+  DB.set('communications', comms);
+  closeModal('comm-modal');
+  renderGrid();
+}
+
+function deleteComm(id) {
+  if (!confirm('Delete this communication record?')) return;
+  const comms = DB.get('communications');
+  DB.set('communications', comms.filter(x => x.id !== id));
+  toast('Deleted.', 'warning');
+  renderGrid();
+}
+</script>
+</body>
+</html>

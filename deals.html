@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deals – Manics Ltd</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="layout">
+  <div id="sidebar-container"></div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-icon" id="menu-toggle">☰</button>
+        <h1 id="page-title">Deals</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-icon" id="dark-toggle">🌙</button>
+      </div>
+    </div>
+    <div class="content">
+      <!-- Status summary pills -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;" id="status-pills"></div>
+
+      <div class="toolbar">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="search" placeholder="Search deals..." />
+        </div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="filter-status" style="width:auto;">
+            <option value="">All Status</option>
+            <option>New</option><option>Negotiation</option><option>Approved</option>
+            <option>Rejected</option><option>Completed</option>
+          </select>
+          <button class="btn btn-primary" onclick="openAdd()">+ New Deal</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Deal Pipeline</h3>
+          <span id="deal-count" style="font-size:0.8rem;color:var(--muted);"></span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Deal Name</th><th>Partner</th><th>Amount (RWF)</th>
+                  <th>Start</th><th>End</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="deals-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="deal-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">New Deal</h3>
+      <button class="btn-icon" onclick="closeModal('deal-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="d-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Deal Name *</label>
+          <input type="text" class="form-control" id="d-name" required />
+        </div>
+        <div class="form-group">
+          <label>Partner *</label>
+          <select class="form-control" id="d-partner"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Amount (RWF) *</label>
+          <input type="number" class="form-control" id="d-amount" min="0" />
+          <small id="d-amount-zar" style="color:var(--muted);font-size:0.75rem;"></small>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select class="form-control" id="d-status">
+            <option>New</option><option>Negotiation</option><option>Approved</option>
+            <option>Rejected</option><option>Completed</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Start Date</label>
+          <input type="date" class="form-control" id="d-start" />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" class="form-control" id="d-end" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea class="form-control" id="d-desc" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('deal-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDeal()">Save Deal</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Modal -->
+<div class="modal-overlay" id="view-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Deal Details</h3>
+      <button class="btn-icon" onclick="closeModal('view-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="view-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('view-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="assets/app.js"></script>
+<script src="assets/sidebar.js"></script>
+<script>
+let editId = null;
+const statusColors = { New:'badge-info', Negotiation:'badge-warning', Approved:'badge-success', Rejected:'badge-danger', Completed:'badge-primary' };
+
+document.addEventListener('DOMContentLoaded', () => {
+  requireAuth();
+  renderSidebar('Deals');
+  renderPills();
+  renderTable();
+  document.getElementById('search').addEventListener('input', renderTable);
+  document.getElementById('filter-status').addEventListener('change', renderTable);
+  document.getElementById('d-amount').addEventListener('input', () => {
+    const v = parseFloat(document.getElementById('d-amount').value) || 0;
+    document.getElementById('d-amount-zar').textContent = v ? '≈ ' + fmtZAR(v) : '';
+  });
+});
+
+function renderPills() {
+  const deals = DB.get('deals');
+  const statuses = ['New','Negotiation','Approved','Completed','Rejected'];
+  document.getElementById('status-pills').innerHTML = statuses.map(s => {
+    const c = deals.filter(d => d.status === s).length;
+    return `<div class="stat-card" style="padding:12px 16px;cursor:pointer;" onclick="filterByStatus('${s}')">
+      <div class="stat-info"><h4 style="font-size:1.3rem;">${c}</h4><p>${s}</p></div>
+    </div>`;
+  }).join('');
+}
+
+function filterByStatus(s) {
+  document.getElementById('filter-status').value = s;
+  renderTable();
+}
+
+function renderTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const st = document.getElementById('filter-status').value;
+  const partners = DB.get('partners');
+  let data = DB.get('deals').filter(d => {
+    const p = partners.find(x => x.id === d.partner_id);
+    return (!q || d.deal_name.toLowerCase().includes(q) || (p?.company_name.toLowerCase().includes(q))) &&
+           (!st || d.status === st);
+  });
+  document.getElementById('deal-count').textContent = `${data.length} deal(s)`;
+  document.getElementById('deals-table').innerHTML = data.length ? data.map((d, i) => {
+    const p = partners.find(x => x.id === d.partner_id);
+    return `<tr>
+      <td>${i+1}</td>
+      <td><strong>${d.deal_name}</strong></td>
+      <td>${p?.company_name || '—'}</td>
+      <td>${fmtRWF(d.amount)} <small style="color:var(--muted);">(${fmtZAR(d.amount)})</small></td>
+      <td>${fmtDate(d.start_date)}</td>
+      <td>${fmtDate(d.end_date)}</td>
+      <td><span class="badge ${statusColors[d.status]||'badge-muted'}">${d.status}</span></td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="viewDeal(${d.id})">👁</button>
+        <button class="btn btn-sm btn-outline" onclick="editDeal(${d.id})">✏️</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteDeal(${d.id})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="8"><div class="empty-state"><div class="icon">💼</div><p>No deals found.</p></div></td></tr>`;
+}
+
+function populatePartners(selectedId) {
+  const sel = document.getElementById('d-partner');
+  sel.innerHTML = DB.get('partners').map(p =>
+    `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${p.company_name}</option>`
+  ).join('');
+}
+
+function openAdd() {
+  editId = null;
+  document.getElementById('modal-title').textContent = 'New Deal';
+  ['d-id','d-name','d-amount','d-start','d-end','d-desc'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('d-status').value = 'New';
+  populatePartners(null);
+  openModal('deal-modal');
+}
+
+function editDeal(id) {
+  const d = DB.get('deals').find(x => x.id === id);
+  if (!d) return;
+  editId = id;
+  document.getElementById('modal-title').textContent = 'Edit Deal';
+  document.getElementById('d-id').value = d.id;
+  document.getElementById('d-name').value = d.deal_name;
+  document.getElementById('d-amount').value = d.amount;
+  document.getElementById('d-status').value = d.status;
+  document.getElementById('d-start').value = d.start_date || '';
+  document.getElementById('d-end').value = d.end_date || '';
+  document.getElementById('d-desc').value = d.description || '';
+  populatePartners(d.partner_id);
+  openModal('deal-modal');
+}
+
+function saveDeal() {
+  const name = document.getElementById('d-name').value.trim();
+  const amount = parseFloat(document.getElementById('d-amount').value) || 0;
+  const partnerId = parseInt(document.getElementById('d-partner').value);
+  if (!name) { toast('Deal name is required.', 'error'); return; }
+
+  const deals = DB.get('deals');
+  const obj = {
+    deal_name: name, partner_id: partnerId, amount,
+    status: document.getElementById('d-status').value,
+    start_date: document.getElementById('d-start').value,
+    end_date: document.getElementById('d-end').value,
+    description: document.getElementById('d-desc').value.trim(),
+    created_at: new Date().toISOString().split('T')[0]
+  };
+
+  if (editId) {
+    const idx = deals.findIndex(d => d.id === editId);
+    deals[idx] = { ...deals[idx], ...obj };
+    logActivity(`Deal "${name}" updated`, '✏️');
+    toast('Deal updated!');
+  } else {
+    obj.id = nextId(deals);
+    deals.push(obj);
+    logActivity(`New deal "${name}" created`, '💼');
+    toast('Deal created!');
+  }
+  DB.set('deals', deals);
+  closeModal('deal-modal');
+  renderTable();
+  renderPills();
+}
+
+function deleteDeal(id) {
+  if (!confirm('Delete this deal?')) return;
+  const deals = DB.get('deals');
+  const d = deals.find(x => x.id === id);
+  DB.set('deals', deals.filter(x => x.id !== id));
+  logActivity(`Deal "${d?.deal_name}" deleted`, '🗑');
+  toast('Deal deleted.', 'warning');
+  renderTable();
+  renderPills();
+}
+
+function viewDeal(id) {
+  const d = DB.get('deals').find(x => x.id === id);
+  const p = DB.get('partners').find(x => x.id === d?.partner_id);
+  if (!d) return;
+  document.getElementById('view-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div><label style="font-size:0.75rem;color:var(--muted);">DEAL NAME</label><p><strong>${d.deal_name}</strong></p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">STATUS</label><p><span class="badge ${statusColors[d.status]||''}">${d.status}</span></p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">PARTNER</label><p>${p?.company_name || '—'}</p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">AMOUNT</label><p><strong>${fmtRWF(d.amount)}</strong><br><small style="color:var(--muted);">${fmtZAR(d.amount)}</small></p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">START DATE</label><p>${fmtDate(d.start_date)}</p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">END DATE</label><p>${fmtDate(d.end_date)}</p></div>
+      <div style="grid-column:1/-1;"><label style="font-size:0.75rem;color:var(--muted);">DESCRIPTION</label><p>${d.description || '—'}</p></div>
+    </div>`;
+  openModal('view-modal');
+}
+</script>
+</body>
+</html>

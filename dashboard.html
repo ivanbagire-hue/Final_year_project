@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard – Manics Ltd</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="layout">
+  <div id="sidebar-container"></div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-icon" id="menu-toggle">☰</button>
+        <h1 id="page-title">Dashboard</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-icon" id="dark-toggle" title="Toggle dark mode">🌙</button>
+        <span id="topbar-date" style="font-size:0.8rem;color:var(--muted);"></span>
+      </div>
+    </div>
+    <div class="content">
+      <!-- Stats -->
+      <div class="stats-grid" id="stats-grid"></div>
+
+      <!-- Charts + Activity -->
+      <div class="dash-grid">
+        <div>
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header"><h3>📊 Deals by Status</h3></div>
+            <div class="card-body">
+              <div class="chart-area">
+                <div>
+                  <div class="bar-chart" id="deal-chart"></div>
+                  <div class="bar-labels" id="deal-labels"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3>🤝 Top Partners</h3></div>
+            <div class="card-body">
+              <div id="top-partners"></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <!-- Currency Converter -->
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header"><h3>💱 RWF ↔ ZAR Converter</h3></div>
+            <div class="card-body">
+              <div style="font-size:0.75rem;color:var(--muted);margin-bottom:10px;">Rate: 1 ZAR = 65 RWF (fixed reference rate)</div>
+              <div class="form-group" style="margin-bottom:10px;">
+                <label style="font-size:0.78rem;">Amount in RWF</label>
+                <input type="number" class="form-control" id="conv-rwf" placeholder="e.g. 1000000" oninput="convertRWF()" />
+              </div>
+              <div style="text-align:center;font-size:1.1rem;margin:6px 0;">⇅</div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label style="font-size:0.78rem;">Amount in ZAR (R)</label>
+                <input type="number" class="form-control" id="conv-zar" placeholder="e.g. 15384" oninput="convertZAR()" />
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header"><h3>🔔 Upcoming Meetings</h3></div>
+            <div class="card-body" id="upcoming-meetings"></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3>⚡ Recent Activity</h3></div>
+            <div class="card-body">
+              <ul class="activity-list" id="activity-list"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="assets/app.js"></script>
+<script src="assets/sidebar.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  requireAuth();
+  renderSidebar('Dashboard');
+  document.getElementById('topbar-date').textContent = new Date().toLocaleDateString('en-ZA', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  const partners = DB.get('partners');
+  const deals = DB.get('deals');
+  const contracts = DB.get('contracts');
+  const comms = DB.get('communications');
+
+  const activeDeals = deals.filter(d => ['New','Negotiation','Approved'].includes(d.status));
+  const completedDeals = deals.filter(d => d.status === 'Completed');
+  const expiredContracts = contracts.filter(c => c.status === 'Expired');
+  const activeContracts = contracts.filter(c => c.status === 'Active');
+  const totalRevenue = completedDeals.reduce((s, d) => s + d.amount, 0);
+  const upcomingMeetings = comms.filter(c => c.meeting_date && new Date(c.meeting_date) >= new Date());
+
+  const stats = [
+    { label: 'Total Partners', value: partners.length, icon: '🤝', color: 'blue' },
+    { label: 'Active Deals', value: activeDeals.length, icon: '💼', color: 'green' },
+    { label: 'Active Contracts', value: activeContracts.length, icon: '📄', color: 'orange' },
+    { label: 'Expired Contracts', value: expiredContracts.length, icon: '⚠️', color: 'red' },
+    { label: 'Upcoming Meetings', value: upcomingMeetings.length, icon: '📅', color: 'purple' },
+    { label: 'Revenue (Completed)', value: fmtRWF(totalRevenue), icon: '💰', color: 'teal' }
+  ];
+
+  document.getElementById('stats-grid').innerHTML = stats.map(s => `
+    <div class="stat-card">
+      <div class="stat-icon ${s.color}">${s.icon}</div>
+      <div class="stat-info"><h4>${s.value}</h4><p>${s.label}</p></div>
+    </div>`).join('');
+
+  // Deal chart
+  const statuses = ['New','Negotiation','Approved','Completed','Rejected'];
+  const colors = ['#3182ce','#d69e2e','#38a169','#1a3c5e','#e53e3e'];
+  const counts = statuses.map(s => deals.filter(d => d.status === s).length);
+  const maxC = Math.max(...counts, 1);
+  document.getElementById('deal-chart').innerHTML = statuses.map((s,i) =>
+    `<div class="bar" style="height:${(counts[i]/maxC)*140}px;background:${colors[i]};max-width:50px;" title="${s}: ${counts[i]}"></div>`
+  ).join('');
+  document.getElementById('deal-labels').innerHTML = statuses.map((s,i) =>
+    `<span style="max-width:50px;">${s}<br><strong>${counts[i]}</strong></span>`
+  ).join('');
+
+  // Top partners
+  const partnerDealCounts = partners.map(p => ({
+    name: p.company_name,
+    count: deals.filter(d => d.partner_id === p.id).length,
+    value: deals.filter(d => d.partner_id === p.id).reduce((s,d) => s + d.amount, 0)
+  })).sort((a,b) => b.value - a.value).slice(0,4);
+
+  document.getElementById('top-partners').innerHTML = partnerDealCounts.map(p => `
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;font-size:0.83rem;margin-bottom:4px;">
+        <span>${p.name}</span><span style="color:var(--muted);">${fmtRWF(p.value)}</span>
+      </div>
+      <div class="progress"><div class="progress-bar" style="width:${partnerDealCounts[0].value ? (p.value/partnerDealCounts[0].value*100) : 0}%"></div></div>
+    </div>`).join('') || '<p style="color:var(--muted);font-size:0.85rem;">No partner data yet.</p>';
+
+  // Upcoming meetings
+  document.getElementById('upcoming-meetings').innerHTML = upcomingMeetings.length
+    ? upcomingMeetings.slice(0,3).map(m => `
+        <div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:0.84rem;">
+          <strong>${m.subject}</strong>
+          <div style="color:var(--muted);margin-top:3px;">📅 ${fmtDate(m.meeting_date)} · ${m.participants}</div>
+        </div>`).join('')
+    : '<p style="color:var(--muted);font-size:0.84rem;">No upcoming meetings.</p>';
+
+  // Activity
+  const acts = DB.get('activities');
+  document.getElementById('activity-list').innerHTML = acts.slice(0,6).map(a => `
+    <li><div class="activity-dot"></div>
+      <div><div>${a.icon} ${a.text}</div><div class="time">${a.time}</div></div>
+    </li>`).join('');
+});
+
+function convertRWF() {
+  const rwf = parseFloat(document.getElementById('conv-rwf').value) || 0;
+  document.getElementById('conv-zar').value = rwf ? Math.round(rwf / ZAR_TO_RWF) : '';
+}
+function convertZAR() {
+  const zar = parseFloat(document.getElementById('conv-zar').value) || 0;
+  document.getElementById('conv-rwf').value = zar ? Math.round(zar * ZAR_TO_RWF) : '';
+}
+</script>
+</body>
+</html>

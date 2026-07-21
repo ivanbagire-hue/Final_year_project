@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Partners – Manics Ltd</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="layout">
+  <div id="sidebar-container"></div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-icon" id="menu-toggle">☰</button>
+        <h1 id="page-title">Partners</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-icon" id="dark-toggle">🌙</button>
+      </div>
+    </div>
+    <div class="content">
+      <div class="toolbar">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="search" placeholder="Search partners..." />
+        </div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="filter-status" style="width:auto;">
+            <option value="">All Status</option>
+            <option>Active</option><option>Inactive</option><option>Prospect</option>
+          </select>
+          <button class="btn btn-primary" onclick="openAdd()">+ Add Partner</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Business Partners</h3>
+          <span id="partner-count" style="font-size:0.8rem;color:var(--muted);"></span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Company</th><th>Contact Person</th><th>Email</th>
+                  <th>Phone</th><th>Industry</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="partners-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="partner-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Add Partner</h3>
+      <button class="btn-icon" onclick="closeModal('partner-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="p-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Company Name *</label>
+          <input type="text" class="form-control" id="p-company" required />
+        </div>
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" class="form-control" id="p-contact" required />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" class="form-control" id="p-email" required />
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="text" class="form-control" id="p-phone" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Industry</label>
+          <select class="form-control" id="p-industry">
+            <option>Baking</option><option>Milling</option><option>Beverage</option>
+            <option>Dairy</option><option>Confectionery</option><option>Meat</option>
+            <option>Food & Beverage</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select class="form-control" id="p-status">
+            <option>Active</option><option>Inactive</option><option>Prospect</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Address</label>
+        <input type="text" class="form-control" id="p-address" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('partner-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePartner()">Save Partner</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Modal -->
+<div class="modal-overlay" id="view-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Partner Profile</h3>
+      <button class="btn-icon" onclick="closeModal('view-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="view-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('view-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="assets/app.js"></script>
+<script src="assets/sidebar.js"></script>
+<script>
+let editId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  requireAuth();
+  renderSidebar('Partners');
+  renderTable();
+  document.getElementById('search').addEventListener('input', renderTable);
+  document.getElementById('filter-status').addEventListener('change', renderTable);
+});
+
+function renderTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const st = document.getElementById('filter-status').value;
+  let data = DB.get('partners').filter(p =>
+    (!q || p.company_name.toLowerCase().includes(q) || p.contact_person.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)) &&
+    (!st || p.status === st)
+  );
+  document.getElementById('partner-count').textContent = `${data.length} partner(s)`;
+  document.getElementById('partners-table').innerHTML = data.length ? data.map((p, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td><strong>${p.company_name}</strong></td>
+      <td>${p.contact_person}</td>
+      <td>${p.email}</td>
+      <td>${p.phone || '—'}</td>
+      <td>${p.industry || '—'}</td>
+      <td><span class="badge ${p.status==='Active'?'badge-success':p.status==='Prospect'?'badge-info':'badge-muted'}">${p.status}</span></td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="viewPartner(${p.id})">👁</button>
+        <button class="btn btn-sm btn-outline" onclick="editPartner(${p.id})">✏️</button>
+        <button class="btn btn-sm btn-danger" onclick="deletePartner(${p.id})">🗑</button>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="8"><div class="empty-state"><div class="icon">🤝</div><p>No partners found.</p></div></td></tr>`;
+}
+
+function openAdd() { editId = null; document.getElementById('modal-title').textContent = 'Add Partner'; clearForm(); openModal('partner-modal'); }
+
+function clearForm() {
+  ['p-id','p-company','p-contact','p-email','p-phone','p-address'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('p-industry').value = 'Baking';
+  document.getElementById('p-status').value = 'Active';
+}
+
+function editPartner(id) {
+  const p = DB.get('partners').find(x => x.id === id);
+  if (!p) return;
+  editId = id;
+  document.getElementById('modal-title').textContent = 'Edit Partner';
+  document.getElementById('p-id').value = p.id;
+  document.getElementById('p-company').value = p.company_name;
+  document.getElementById('p-contact').value = p.contact_person;
+  document.getElementById('p-email').value = p.email;
+  document.getElementById('p-phone').value = p.phone || '';
+  document.getElementById('p-address').value = p.address || '';
+  document.getElementById('p-industry').value = p.industry || 'Baking';
+  document.getElementById('p-status').value = p.status;
+  openModal('partner-modal');
+}
+
+function savePartner() {
+  const company = document.getElementById('p-company').value.trim();
+  const contact = document.getElementById('p-contact').value.trim();
+  const email = document.getElementById('p-email').value.trim();
+  if (!company || !contact || !email) { toast('Please fill required fields.', 'error'); return; }
+
+  const partners = DB.get('partners');
+  const obj = {
+    company_name: company, contact_person: contact, email,
+    phone: document.getElementById('p-phone').value.trim(),
+    address: document.getElementById('p-address').value.trim(),
+    industry: document.getElementById('p-industry').value,
+    status: document.getElementById('p-status').value,
+    created_at: new Date().toISOString().split('T')[0]
+  };
+
+  if (editId) {
+    const idx = partners.findIndex(p => p.id === editId);
+    partners[idx] = { ...partners[idx], ...obj };
+    logActivity(`Partner "${company}" updated`, '✏️');
+    toast('Partner updated successfully!');
+  } else {
+    obj.id = nextId(partners);
+    partners.push(obj);
+    logActivity(`New partner "${company}" added`, '🤝');
+    toast('Partner added successfully!');
+  }
+  DB.set('partners', partners);
+  closeModal('partner-modal');
+  renderTable();
+}
+
+function deletePartner(id) {
+  if (!confirm('Delete this partner? This cannot be undone.')) return;
+  const partners = DB.get('partners');
+  const p = partners.find(x => x.id === id);
+  DB.set('partners', partners.filter(x => x.id !== id));
+  logActivity(`Partner "${p?.company_name}" deleted`, '🗑');
+  toast('Partner deleted.', 'warning');
+  renderTable();
+}
+
+function viewPartner(id) {
+  const p = DB.get('partners').find(x => x.id === id);
+  if (!p) return;
+  const deals = DB.get('deals').filter(d => d.partner_id === id);
+  document.getElementById('view-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div><label style="font-size:0.75rem;color:var(--muted);">COMPANY</label><p><strong>${p.company_name}</strong></p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">STATUS</label><p><span class="badge ${p.status==='Active'?'badge-success':p.status==='Prospect'?'badge-info':'badge-muted'}">${p.status}</span></p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">CONTACT PERSON</label><p>${p.contact_person}</p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">INDUSTRY</label><p>${p.industry || '—'}</p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">EMAIL</label><p>${p.email}</p></div>
+      <div><label style="font-size:0.75rem;color:var(--muted);">PHONE</label><p>${p.phone || '—'}</p></div>
+      <div style="grid-column:1/-1;"><label style="font-size:0.75rem;color:var(--muted);">ADDRESS</label><p>${p.address || '—'}</p></div>
+    </div>
+    <h4 style="margin-bottom:10px;font-size:0.9rem;">Deals (${deals.length})</h4>
+    ${deals.length ? deals.map(d => `
+      <div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px;font-size:0.83rem;">
+        <strong>${d.deal_name}</strong> — R ${d.amount.toLocaleString()}
+        <span class="badge badge-info" style="margin-left:6px;">${d.status}</span>
+      </div>`).join('') : '<p style="color:var(--muted);font-size:0.84rem;">No deals yet.</p>'}`;
+  openModal('view-modal');
+}
+</script>
+</body>
+</html>

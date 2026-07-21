@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login – Manics Ltd Partnership System</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div style="width:70px;height:70px;background:linear-gradient(135deg,#1a3c5e,#2d6a9f);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:1.8rem;">🍞</div>
+      <h2>Manics Ltd</h2>
+      <p>Business Partnership Management Information System</p>
+    </div>
+    <h3>Sign In</h3>
+    <div id="login-error" class="alert alert-danger" style="display:none;"></div>
+    <form id="login-form">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" class="form-control" id="email" placeholder="you@manicsgroup.co.za" required />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" class="form-control" id="password" placeholder="Enter password" required />
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font-size:0.82rem;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="remember" /> Remember me
+        </label>
+        <a href="#" style="color:var(--primary);text-decoration:none;">Forgot password?</a>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+    </form>
+    <p style="text-align:center;margin-top:20px;font-size:0.78rem;color:var(--muted);">
+      Demo: admin@manicsgroup.co.za / admin123
+    </p>
+    <p style="text-align:center;margin-top:8px;font-size:0.75rem;color:var(--muted);">
+      © 2026 Manics Ltd · Your Taste, Our Passion!
+    </p>
+  </div>
+
+  <script src="assets/app.js"></script>
+  <script>
+    // Clear any stale session so login page always shows fresh
+    localStorage.removeItem('mg_current_user');
+    // Force re-seed if data version changed
+    if (localStorage.getItem('mg_seeded') !== '"v2_rwf"') {
+      ['mg_deals','mg_partners','mg_contracts','mg_communications','mg_activities','mg_users','mg_seeded'].forEach(k => localStorage.removeItem(k));
+    }
+    seedData();
+
+    document.getElementById('login-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const pass = document.getElementById('password').value;
+      const users = DB.get('users');
+      const user = users.find(u => u.email === email && u.password === pass && u.active);
+      if (user) {
+        DB.setObj('current_user', user);
+        window.location.href = 'dashboard.html';
+      } else {
+        const err = document.getElementById('login-error');
+        err.textContent = 'Invalid email or password. Please try again.';
+        err.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

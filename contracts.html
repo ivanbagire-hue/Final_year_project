@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contracts – Manics Group</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="layout">
+  <div id="sidebar-container"></div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-icon" id="menu-toggle">☰</button>
+        <h1 id="page-title">Contracts</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-icon" id="dark-toggle">🌙</button>
+      </div>
+    </div>
+    <div class="content">
+      <!-- Expiry alerts -->
+      <div id="expiry-alerts"></div>
+
+      <div class="toolbar">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="search" placeholder="Search contracts..." />
+        </div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="filter-status" style="width:auto;">
+            <option value="">All Status</option>
+            <option>Active</option><option>Expired</option><option>Pending</option><option>Renewed</option>
+          </select>
+          <button class="btn btn-primary" onclick="openAdd()">+ New Contract</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Contracts</h3>
+          <span id="contract-count" style="font-size:0.8rem;color:var(--muted);"></span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Contract No.</th><th>Contract Name</th><th>Deal</th>
+                  <th>Start Date</th><th>End Date</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="contracts-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="contract-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">New Contract</h3>
+      <button class="btn-icon" onclick="closeModal('contract-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="c-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Contract Number *</label>
+          <input type="text" class="form-control" id="c-number" placeholder="MG-2024-XXX" required />
+        </div>
+        <div class="form-group">
+          <label>Contract Name *</label>
+          <input type="text" class="form-control" id="c-name" required />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Linked Deal</label>
+          <select class="form-control" id="c-deal"></select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select class="form-control" id="c-status">
+            <option>Active</option><option>Pending</option><option>Expired</option><option>Renewed</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Start Date</label>
+          <input type="date" class="form-control" id="c-start" />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" class="form-control" id="c-end" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Upload Contract File</label>
+        <input type="file" class="form-control" id="c-file" accept=".pdf,.doc,.docx" />
+        <small style="color:var(--muted);font-size:0.75rem;">Accepted: PDF, DOC, DOCX (stored as reference)</small>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('contract-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveContract()">Save Contract</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="assets/app.js"></script>
+<script src="assets/sidebar.js"></script>
+<script>
+let editId = null;
+const statusColors = { Active:'badge-success', Expired:'badge-danger', Pending:'badge-warning', Renewed:'badge-info' };
+
+document.addEventListener('DOMContentLoaded', () => {
+  requireAuth();
+  renderSidebar('Contracts');
+  checkExpiryAlerts();
+  renderTable();
+  document.getElementById('search').addEventListener('input', renderTable);
+  document.getElementById('filter-status').addEventListener('change', renderTable);
+});
+
+function checkExpiryAlerts() {
+  const contracts = DB.get('contracts');
+  const today = new Date();
+  const soon = contracts.filter(c => {
+    if (!c.end_date || c.status === 'Expired') return false;
+    const diff = (new Date(c.end_date) - today) / (1000*60*60*24);
+    return diff >= 0 && diff <= 30;
+  });
+  const expired = contracts.filter(c => c.end_date && new Date(c.end_date) < today && c.status !== 'Expired');
+  let html = '';
+  if (expired.length) html += `<div class="alert alert-danger">⚠️ ${expired.length} contract(s) have expired and need attention.</div>`;
+  if (soon.length) html += `<div class="alert alert-warning">🔔 ${soon.length} contract(s) expiring within 30 days.</div>`;
+  document.getElementById('expiry-alerts').innerHTML = html;
+}
+
+function renderTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const st = document.getElementById('filter-status').value;
+  const deals = DB.get('deals');
+  let data = DB.get('contracts').filter(c => {
+    const d = deals.find(x => x.id === c.deal_id);
+    return (!q || c.contract_name.toLowerCase().includes(q) || c.contract_number.toLowerCase().includes(q) || (d?.deal_name.toLowerCase().includes(q))) &&
+           (!st || c.status === st);
+  });
+  document.getElementById('contract-count').textContent = `${data.length} contract(s)`;
+  document.getElementById('contracts-table').innerHTML = data.length ? data.map((c, i) => {
+    const d = deals.find(x => x.id === c.deal_id);
+    const isExpiringSoon = c.end_date && (new Date(c.end_date) - new Date()) / (1000*60*60*24) <= 30 && c.status === 'Active';
+    return `<tr ${isExpiringSoon ? 'style="background:#fffaf0;"' : ''}>
+      <td>${i+1}</td>
+      <td><code style="font-size:0.8rem;">${c.contract_number}</code></td>
+      <td><strong>${c.contract_name}</strong>${isExpiringSoon ? ' <span class="badge badge-warning">Expiring Soon</span>' : ''}</td>
+      <td>${d?.deal_name || '—'}</td>
+      <td>${fmtDate(c.start_date)}</td>
+      <td>${fmtDate(c.end_date)}</td>
+      <td><span class="badge ${statusColors[c.status]||'badge-muted'}">${c.status}</span></td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="editContract(${c.id})">✏️</button>
+        <button class="btn btn-sm btn-success" onclick="renewContract(${c.id})" title="Renew">🔄</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteContract(${c.id})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="8"><div class="empty-state"><div class="icon">📄</div><p>No contracts found.</p></div></td></tr>`;
+}
+
+function populateDeals(selectedId) {
+  document.getElementById('c-deal').innerHTML = `<option value="">— No linked deal —</option>` +
+    DB.get('deals').map(d => `<option value="${d.id}" ${d.id === selectedId ? 'selected' : ''}>${d.deal_name}</option>`).join('');
+}
+
+function openAdd() {
+  editId = null;
+  document.getElementById('modal-title').textContent = 'New Contract';
+  ['c-id','c-number','c-name','c-start','c-end'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('c-status').value = 'Active';
+  populateDeals(null);
+  // Auto-generate contract number
+  const contracts = DB.get('contracts');
+  const year = new Date().getFullYear();
+  document.getElementById('c-number').value = `MG-${year}-${String(nextId(contracts)).padStart(3,'0')}`;
+  openModal('contract-modal');
+}
+
+function editContract(id) {
+  const c = DB.get('contracts').find(x => x.id === id);
+  if (!c) return;
+  editId = id;
+  document.getElementById('modal-title').textContent = 'Edit Contract';
+  document.getElementById('c-id').value = c.id;
+  document.getElementById('c-number').value = c.contract_number;
+  document.getElementById('c-name').value = c.contract_name;
+  document.getElementById('c-status').value = c.status;
+  document.getElementById('c-start').value = c.start_date || '';
+  document.getElementById('c-end').value = c.end_date || '';
+  populateDeals(c.deal_id);
+  openModal('contract-modal');
+}
+
+function saveContract() {
+  const number = document.getElementById('c-number').value.trim();
+  const name = document.getElementById('c-name').value.trim();
+  if (!number || !name) { toast('Contract number and name are required.', 'error'); return; }
+
+  const contracts = DB.get('contracts');
+  const dealId = parseInt(document.getElementById('c-deal').value) || null;
+  const obj = {
+    contract_number: number, contract_name: name, deal_id: dealId,
+    status: document.getElementById('c-status').value,
+    start_date: document.getElementById('c-start').value,
+    end_date: document.getElementById('c-end').value,
+    file: document.getElementById('c-file').files[0]?.name || null,
+    created_at: new Date().toISOString().split('T')[0]
+  };
+
+  if (editId) {
+    const idx = contracts.findIndex(c => c.id === editId);
+    contracts[idx] = { ...contracts[idx], ...obj };
+    logActivity(`Contract "${name}" updated`, '✏️');
+    toast('Contract updated!');
+  } else {
+    obj.id = nextId(contracts);
+    contracts.push(obj);
+    logActivity(`Contract "${number}" created`, '📄');
+    toast('Contract created!');
+  }
+  DB.set('contracts', contracts);
+  closeModal('contract-modal');
+  renderTable();
+  checkExpiryAlerts();
+}
+
+function renewContract(id) {
+  const contracts = DB.get('contracts');
+  const idx = contracts.findIndex(c => c.id === id);
+  if (idx === -1) return;
+  const c = contracts[idx];
+  const newEnd = prompt('Enter new end date (YYYY-MM-DD):', c.end_date || '');
+  if (!newEnd) return;
+  contracts[idx] = { ...c, status: 'Renewed', end_date: newEnd };
+  DB.set('contracts', contracts);
+  logActivity(`Contract "${c.contract_name}" renewed`, '🔄');
+  toast('Contract renewed!', 'success');
+  renderTable();
+  checkExpiryAlerts();
+}
+
+function deleteContract(id) {
+  if (!confirm('Delete this contract?')) return;
+  const contracts = DB.get('contracts');
+  const c = contracts.find(x => x.id === id);
+  DB.set('contracts', contracts.filter(x => x.id !== id));
+  logActivity(`Contract "${c?.contract_name}" deleted`, '🗑');
+  toast('Contract deleted.', 'warning');
+  renderTable();
+}
+</script>
+</body>
+</html>

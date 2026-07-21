@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Users – Manics Ltd</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="layout">
+  <div id="sidebar-container"></div>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-icon" id="menu-toggle">☰</button>
+        <h1 id="page-title">Users</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-icon" id="dark-toggle">🌙</button>
+      </div>
+    </div>
+    <div class="content">
+      <div id="access-denied" class="alert alert-danger" style="display:none;">
+        ⛔ Access denied. Only Administrators and Managers can manage users.
+      </div>
+      <div id="users-section">
+        <div class="toolbar">
+          <div class="search-box">
+            <span>🔍</span>
+            <input type="text" id="search" placeholder="Search users..." />
+          </div>
+          <div style="display:flex;gap:8px;">
+            <select class="form-control" id="filter-role" style="width:auto;">
+              <option value="">All Roles</option>
+              <option>Administrator</option><option>Manager</option>
+              <option>Employee</option><option>Business Partner</option>
+            </select>
+            <button class="btn btn-primary" onclick="openAdd()">+ Add User</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>System Users</h3>
+            <span id="user-count" style="font-size:0.8rem;color:var(--muted);"></span>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>#</th><th>Full Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="users-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Add User</h3>
+      <button class="btn-icon" onclick="closeModal('user-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="u-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" class="form-control" id="u-name" required />
+        </div>
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" class="form-control" id="u-email" required />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Role *</label>
+          <select class="form-control" id="u-role">
+            <option>Administrator</option><option>Manager</option>
+            <option>Employee</option><option>Business Partner</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select class="form-control" id="u-active">
+            <option value="true">Active</option><option value="false">Inactive</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" id="password-group">
+        <label>Password *</label>
+        <input type="password" class="form-control" id="u-password" placeholder="Min 6 characters" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveUser()">Save User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="modal-overlay" id="pwd-modal">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <h3>Change Password</h3>
+      <button class="btn-icon" onclick="closeModal('pwd-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pwd-uid" />
+      <div class="form-group">
+        <label>New Password *</label>
+        <input type="password" class="form-control" id="pwd-new" placeholder="Min 6 characters" />
+      </div>
+      <div class="form-group">
+        <label>Confirm Password *</label>
+        <input type="password" class="form-control" id="pwd-confirm" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('pwd-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="changePassword()">Update Password</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="assets/app.js"></script>
+<script src="assets/sidebar.js"></script>
+<script>
+let editId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  requireAuth();
+  renderSidebar('Users');
+  const u = getCurrentUser();
+  if (!u || !['Administrator','Manager'].includes(u.role)) {
+    document.getElementById('access-denied').style.display = 'block';
+    document.getElementById('users-section').style.display = 'none';
+    return;
+  }
+  renderTable();
+  document.getElementById('search').addEventListener('input', renderTable);
+  document.getElementById('filter-role').addEventListener('change', renderTable);
+});
+
+function renderTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const role = document.getElementById('filter-role').value;
+  let data = DB.get('users').filter(u =>
+    (!q || u.fullname.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)) &&
+    (!role || u.role === role)
+  );
+  document.getElementById('user-count').textContent = `${data.length} user(s)`;
+  const roleColors = { Administrator:'badge-danger', Manager:'badge-warning', Employee:'badge-info', 'Business Partner':'badge-success' };
+  document.getElementById('users-table').innerHTML = data.length ? data.map((u, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td><div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;">${u.fullname.charAt(0)}</div>
+        <strong>${u.fullname}</strong>
+      </div></td>
+      <td>${u.email}</td>
+      <td><span class="badge ${roleColors[u.role]||'badge-muted'}">${u.role}</span></td>
+      <td><span class="badge ${u.active?'badge-success':'badge-muted'}">${u.active?'Active':'Inactive'}</span></td>
+      <td>${fmtDate(u.created_at)}</td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})">✏️</button>
+        <button class="btn btn-sm btn-outline" onclick="openChangePwd(${u.id})" title="Change Password">🔑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">🗑</button>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="7"><div class="empty-state"><div class="icon">👥</div><p>No users found.</p></div></td></tr>`;
+}
+
+function openAdd() {
+  editId = null;
+  document.getElementById('modal-title').textContent = 'Add User';
+  ['u-id','u-name','u-email','u-password'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('u-role').value = 'Employee';
+  document.getElementById('u-active').value = 'true';
+  document.getElementById('password-group').style.display = 'block';
+  openModal('user-modal');
+}
+
+function editUser(id) {
+  const u = DB.get('users').find(x => x.id === id);
+  if (!u) return;
+  editId = id;
+  document.getElementById('modal-title').textContent = 'Edit User';
+  document.getElementById('u-id').value = u.id;
+  document.getElementById('u-name').value = u.fullname;
+  document.getElementById('u-email').value = u.email;
+  document.getElementById('u-role').value = u.role;
+  document.getElementById('u-active').value = String(u.active);
+  document.getElementById('u-password').value = '';
+  document.getElementById('password-group').style.display = 'none';
+  openModal('user-modal');
+}
+
+function saveUser() {
+  const name = document.getElementById('u-name').value.trim();
+  const email = document.getElementById('u-email').value.trim();
+  const password = document.getElementById('u-password').value;
+  if (!name || !email) { toast('Name and email are required.', 'error'); return; }
+  if (!editId && password.length < 6) { toast('Password must be at least 6 characters.', 'error'); return; }
+
+  const users = DB.get('users');
+  const obj = {
+    fullname: name, email,
+    role: document.getElementById('u-role').value,
+    active: document.getElementById('u-active').value === 'true',
+    created_at: new Date().toISOString().split('T')[0]
+  };
+  if (!editId) obj.password = password;
+
+  if (editId) {
+    const idx = users.findIndex(u => u.id === editId);
+    users[idx] = { ...users[idx], ...obj };
+    logActivity(`User "${name}" updated`, '✏️');
+    toast('User updated!');
+  } else {
+    const exists = users.find(u => u.email === email);
+    if (exists) { toast('Email already exists.', 'error'); return; }
+    obj.id = nextId(users);
+    users.push(obj);
+    logActivity(`New user "${name}" created`, '👤');
+    toast('User created!');
+  }
+  DB.set('users', users);
+  closeModal('user-modal');
+  renderTable();
+}
+
+function openChangePwd(id) {
+  document.getElementById('pwd-uid').value = id;
+  document.getElementById('pwd-new').value = '';
+  document.getElementById('pwd-confirm').value = '';
+  openModal('pwd-modal');
+}
+
+function changePassword() {
+  const id = parseInt(document.getElementById('pwd-uid').value);
+  const np = document.getElementById('pwd-new').value;
+  const cp = document.getElementById('pwd-confirm').value;
+  if (np.length < 6) { toast('Password must be at least 6 characters.', 'error'); return; }
+  if (np !== cp) { toast('Passwords do not match.', 'error'); return; }
+  const users = DB.get('users');
+  const idx = users.findIndex(u => u.id === id);
+  users[idx].password = np;
+  DB.set('users', users);
+  closeModal('pwd-modal');
+  toast('Password changed!');
+}
+
+function deleteUser(id) {
+  const cu = getCurrentUser();
+  if (cu?.id === id) { toast('Cannot delete your own account.', 'error'); return; }
+  if (!confirm('Delete this user?')) return;
+  const users = DB.get('users');
+  const u = users.find(x => x.id === id);
+  DB.set('users', users.filter(x => x.id !== id));
+  logActivity(`User "${u?.fullname}" deleted`, '🗑');
+  toast('User deleted.', 'warning');
+  renderTable();
+}
+</script>
+</body>
+</html>
