@@ -2,18 +2,14 @@
 setlocal
 cd /d "%~dp0"
 
-if exist "%ProgramFiles%\nodejs\node.exe" (
-  "%ProgramFiles%\nodejs\node.exe" server.js
-  exit /b %errorlevel%
+rem PowerShell performs dependency detection, installation, and startup.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-system.ps1"
+set "EXIT_CODE=%errorlevel%"
+
+if not "%EXIT_CODE%"=="0" (
+  echo.
+  echo Startup stopped with error code %EXIT_CODE%.
+  pause
 )
 
-where node.exe >nul 2>nul
-if %errorlevel% equ 0 (
-  node.exe server.js
-  exit /b %errorlevel%
-)
-
-echo Node.js was not found.
-echo Install Node.js 22.5 or newer, then run this launcher again.
-pause
-exit /b 1
+exit /b %EXIT_CODE%

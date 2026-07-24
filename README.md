@@ -23,14 +23,17 @@ dependencies or external services required for a school demonstration.
 
 ## Requirements
 
-- Node.js 22.5 or newer
+- Windows 10 or 11
 - A modern browser such as Chrome, Edge, or Firefox
 
-Check the installed version:
+The launcher checks for Node.js 22.5 or newer. If it is missing or outdated,
+the launcher automatically installs the current Node.js LTS release through
+Windows Package Manager (`winget`) before starting the application. The backend
+uses Node's built-in SQLite module, so there are no npm packages to install.
 
-```powershell
-node --version
-```
+If both Node.js and `winget` are unavailable, the launcher explains how to
+install Node.js manually; Windows cannot safely install software without either
+a package manager or user authorization.
 
 ## Run the system
 
@@ -40,8 +43,16 @@ Open PowerShell in this folder and run:
 .\start-system.cmd
 ```
 
-This launcher finds Node.js even when an older PowerShell or Conda session has
-not refreshed its `PATH`. Alternatively, run Node using its absolute path:
+This launcher:
+
+1. Finds Node.js even when PowerShell or Conda has a stale `PATH`.
+2. Verifies that Node.js is version 22.5 or newer.
+3. Installs or upgrades Node.js LTS with `winget` when necessary.
+4. Verifies the built-in SQLite module.
+5. Detects whether the Manics server is already running.
+6. Starts the server and creates the SQLite database automatically on first run.
+
+Alternatively, if dependencies are already installed, run Node directly:
 
 ```powershell
 & "C:\Program Files\nodejs\node.exe" server.js
