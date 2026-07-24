@@ -134,9 +134,10 @@
 <script>
 let editId = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Partners');
+  if (!canWrite('partners')) document.querySelector('button[onclick="openAdd()"]').style.display = 'none';
   renderTable();
   document.getElementById('search').addEventListener('input', renderTable);
   document.getElementById('filter-status').addEventListener('change', renderTable);
@@ -161,8 +162,9 @@ function renderTable() {
       <td><span class="badge ${p.status==='Active'?'badge-success':p.status==='Prospect'?'badge-info':'badge-muted'}">${p.status}</span></td>
       <td>
         <button class="btn btn-sm btn-outline" onclick="viewPartner(${p.id})">👁</button>
-        <button class="btn btn-sm btn-outline" onclick="editPartner(${p.id})">✏️</button>
-        <button class="btn btn-sm btn-danger" onclick="deletePartner(${p.id})">🗑</button>
+        ${canWrite('partners') ? `
+          <button class="btn btn-sm btn-outline" onclick="editPartner(${p.id})">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="deletePartner(${p.id})">🗑</button>` : ''}
       </td>
     </tr>`).join('') : `<tr><td colspan="8"><div class="empty-state"><div class="icon">🤝</div><p>No partners found.</p></div></td></tr>`;
 }
@@ -191,7 +193,7 @@ function editPartner(id) {
   openModal('partner-modal');
 }
 
-function savePartner() {
+async function savePartner() {
   const company = document.getElementById('p-company').value.trim();
   const contact = document.getElementById('p-contact').value.trim();
   const email = document.getElementById('p-email').value.trim();
@@ -210,25 +212,28 @@ function savePartner() {
   if (editId) {
     const idx = partners.findIndex(p => p.id === editId);
     partners[idx] = { ...partners[idx], ...obj };
-    logActivity(`Partner "${company}" updated`, '✏️');
     toast('Partner updated successfully!');
   } else {
     obj.id = nextId(partners);
     partners.push(obj);
-    logActivity(`New partner "${company}" added`, '🤝');
     toast('Partner added successfully!');
   }
-  DB.set('partners', partners);
+  try {
+    await DB.set('partners', partners);
+    await logActivity(editId ? `Partner "${company}" updated` : `New partner "${company}" added`, editId ? '✏️' : '🤝');
+  } catch { return; }
   closeModal('partner-modal');
   renderTable();
 }
 
-function deletePartner(id) {
+async function deletePartner(id) {
   if (!confirm('Delete this partner? This cannot be undone.')) return;
   const partners = DB.get('partners');
   const p = partners.find(x => x.id === id);
-  DB.set('partners', partners.filter(x => x.id !== id));
-  logActivity(`Partner "${p?.company_name}" deleted`, '🗑');
+  try {
+    await DB.set('partners', partners.filter(x => x.id !== id));
+    await logActivity(`Partner "${p?.company_name}" deleted`, '🗑');
+  } catch { return; }
   toast('Partner deleted.', 'warning');
   renderTable();
 }

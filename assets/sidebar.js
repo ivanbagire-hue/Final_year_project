@@ -34,4 +34,5 @@ function renderSidebar(pageTitle) {
   document.getElementById('page-title').textContent = pageTitle;
   renderSidebarUser();
   setActiveNav();
+  initMobileSidebar();
 }

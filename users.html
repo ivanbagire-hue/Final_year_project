@@ -35,7 +35,7 @@
               <option>Administrator</option><option>Manager</option>
               <option>Employee</option><option>Business Partner</option>
             </select>
-            <button class="btn btn-primary" onclick="openAdd()">+ Add User</button>
+            <button class="btn btn-primary" id="add-user-button" onclick="openAdd()">+ Add User</button>
           </div>
         </div>
 
@@ -96,7 +96,7 @@
       </div>
       <div class="form-group" id="password-group">
         <label>Password *</label>
-        <input type="password" class="form-control" id="u-password" placeholder="Min 6 characters" />
+        <input type="password" class="form-control" id="u-password" placeholder="Min 8 characters" />
       </div>
     </div>
     <div class="modal-footer">
@@ -117,7 +117,7 @@
       <input type="hidden" id="pwd-uid" />
       <div class="form-group">
         <label>New Password *</label>
-        <input type="password" class="form-control" id="pwd-new" placeholder="Min 6 characters" />
+        <input type="password" class="form-control" id="pwd-new" placeholder="Min 8 characters" />
       </div>
       <div class="form-group">
         <label>Confirm Password *</label>
@@ -137,7 +137,7 @@
 <script>
 let editId = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Users');
   const u = getCurrentUser();
@@ -146,12 +146,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('users-section').style.display = 'none';
     return;
   }
+  if (u.role !== 'Administrator') document.getElementById('add-user-button').style.display = 'none';
   renderTable();
   document.getElementById('search').addEventListener('input', renderTable);
   document.getElementById('filter-role').addEventListener('change', renderTable);
 });
 
 function renderTable() {
+  const canManage = getCurrentUser()?.role === 'Administrator';
   const q = document.getElementById('search').value.toLowerCase();
   const role = document.getElementById('filter-role').value;
   let data = DB.get('users').filter(u =>
@@ -172,9 +174,10 @@ function renderTable() {
       <td><span class="badge ${u.active?'badge-success':'badge-muted'}">${u.active?'Active':'Inactive'}</span></td>
       <td>${fmtDate(u.created_at)}</td>
       <td>
-        <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})">✏️</button>
-        <button class="btn btn-sm btn-outline" onclick="openChangePwd(${u.id})" title="Change Password">🔑</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">🗑</button>
+        ${canManage ? `
+          <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})">✏️</button>
+          <button class="btn btn-sm btn-outline" onclick="openChangePwd(${u.id})" title="Change Password">🔑</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">🗑</button>` : '<span style="color:var(--muted);">View only</span>'}
       </td>
     </tr>`).join('') : `<tr><td colspan="7"><div class="empty-state"><div class="icon">👥</div><p>No users found.</p></div></td></tr>`;
 }
@@ -204,12 +207,12 @@ function editUser(id) {
   openModal('user-modal');
 }
 
-function saveUser() {
+async function saveUser() {
   const name = document.getElementById('u-name').value.trim();
   const email = document.getElementById('u-email').value.trim();
   const password = document.getElementById('u-password').value;
   if (!name || !email) { toast('Name and email are required.', 'error'); return; }
-  if (!editId && password.length < 6) { toast('Password must be at least 6 characters.', 'error'); return; }
+  if (!editId && password.length < 8) { toast('Password must be at least 8 characters.', 'error'); return; }
 
   const users = DB.get('users');
   const obj = {
@@ -223,17 +226,18 @@ function saveUser() {
   if (editId) {
     const idx = users.findIndex(u => u.id === editId);
     users[idx] = { ...users[idx], ...obj };
-    logActivity(`User "${name}" updated`, '✏️');
     toast('User updated!');
   } else {
     const exists = users.find(u => u.email === email);
     if (exists) { toast('Email already exists.', 'error'); return; }
     obj.id = nextId(users);
     users.push(obj);
-    logActivity(`New user "${name}" created`, '👤');
     toast('User created!');
   }
-  DB.set('users', users);
+  try {
+    await DB.set('users', users);
+    await logActivity(editId ? `User "${name}" updated` : `New user "${name}" created`, editId ? '✏️' : '👤');
+  } catch { return; }
   closeModal('user-modal');
   renderTable();
 }
@@ -245,28 +249,30 @@ function openChangePwd(id) {
   openModal('pwd-modal');
 }
 
-function changePassword() {
+async function changePassword() {
   const id = parseInt(document.getElementById('pwd-uid').value);
   const np = document.getElementById('pwd-new').value;
   const cp = document.getElementById('pwd-confirm').value;
-  if (np.length < 6) { toast('Password must be at least 6 characters.', 'error'); return; }
+  if (np.length < 8) { toast('Password must be at least 8 characters.', 'error'); return; }
   if (np !== cp) { toast('Passwords do not match.', 'error'); return; }
   const users = DB.get('users');
   const idx = users.findIndex(u => u.id === id);
   users[idx].password = np;
-  DB.set('users', users);
+  try { await DB.set('users', users); } catch { return; }
   closeModal('pwd-modal');
   toast('Password changed!');
 }
 
-function deleteUser(id) {
+async function deleteUser(id) {
   const cu = getCurrentUser();
   if (cu?.id === id) { toast('Cannot delete your own account.', 'error'); return; }
   if (!confirm('Delete this user?')) return;
   const users = DB.get('users');
   const u = users.find(x => x.id === id);
-  DB.set('users', users.filter(x => x.id !== id));
-  logActivity(`User "${u?.fullname}" deleted`, '🗑');
+  try {
+    await DB.set('users', users.filter(x => x.id !== id));
+    await logActivity(`User "${u?.fullname}" deleted`, '🗑');
+  } catch { return; }
   toast('User deleted.', 'warning');
   renderTable();
 }

@@ -87,7 +87,7 @@
               <button class="btn btn-outline btn-sm" onclick="exportAllData()" style="margin-bottom:8px;width:100%;">
                 📤 Export All Data (JSON)
               </button>
-              <button class="btn btn-danger btn-sm" onclick="clearData()" style="width:100%;">
+              <button class="btn btn-danger btn-sm" id="reset-data-button" onclick="clearData()" style="width:100%;">
                 🗑 Reset All Data
               </button>
             </div>
@@ -124,9 +124,10 @@
 <script src="assets/app.js"></script>
 <script src="assets/sidebar.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Profile & Settings');
+  if (getCurrentUser()?.role !== 'Administrator') document.getElementById('reset-data-button').style.display = 'none';
   loadProfile();
   loadActivityLog();
   initSettingsToggle();
@@ -147,38 +148,46 @@ function loadProfile() {
   document.getElementById('prof-role').value = u.role;
 }
 
-function saveProfile() {
+async function saveProfile() {
   const name = document.getElementById('prof-name').value.trim();
   const email = document.getElementById('prof-email').value.trim();
   if (!name || !email) { showAlert('profile-alert', 'Name and email are required.', 'danger'); return; }
 
-  const u = getCurrentUser();
-  const users = DB.get('users');
-  const idx = users.findIndex(x => x.id === u.id);
-  users[idx] = { ...users[idx], fullname: name, email };
-  DB.set('users', users);
-  DB.setObj('current_user', { ...u, fullname: name, email });
+  try {
+    const result = await apiFetch('/api/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ fullname: name, email })
+    });
+    DB.setObj('current_user', result.user);
+    const users = DB.get('users');
+    const idx = users.findIndex(x => x.id === result.user.id);
+    if (idx >= 0) users[idx] = result.user;
+    DB.setLocal('users', users);
+  } catch (error) {
+    showAlert('profile-alert', error.message, 'danger');
+    return;
+  }
   renderSidebarUser();
   loadProfile();
   showAlert('profile-alert', 'Profile updated successfully!', 'success');
   toast('Profile saved!');
 }
 
-function changePassword() {
+async function changePassword() {
   const current = document.getElementById('pwd-current').value;
   const np = document.getElementById('pwd-new').value;
   const cp = document.getElementById('pwd-confirm').value;
-  const u = getCurrentUser();
-  const users = DB.get('users');
-  const user = users.find(x => x.id === u.id);
-
-  if (user.password !== current) { showAlert('pwd-alert', 'Current password is incorrect.', 'danger'); return; }
-  if (np.length < 6) { showAlert('pwd-alert', 'New password must be at least 6 characters.', 'danger'); return; }
+  if (np.length < 8) { showAlert('pwd-alert', 'New password must be at least 8 characters.', 'danger'); return; }
   if (np !== cp) { showAlert('pwd-alert', 'Passwords do not match.', 'danger'); return; }
-
-  const idx = users.findIndex(x => x.id === u.id);
-  users[idx].password = np;
-  DB.set('users', users);
+  try {
+    await apiFetch('/api/profile/password', {
+      method: 'PUT',
+      body: JSON.stringify({ current_password: current, new_password: np })
+    });
+  } catch (error) {
+    showAlert('pwd-alert', error.message, 'danger');
+    return;
+  }
   document.getElementById('pwd-current').value = '';
   document.getElementById('pwd-new').value = '';
   document.getElementById('pwd-confirm').value = '';
@@ -219,6 +228,8 @@ function exportAllData() {
     deals: DB.get('deals'),
     contracts: DB.get('contracts'),
     communications: DB.get('communications'),
+    activities: DB.get('activities'),
+    reports: DB.get('reports'),
     exported_at: new Date().toISOString()
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -229,15 +240,16 @@ function exportAllData() {
   toast('Data exported!');
 }
 
-function clearData() {
+async function clearData() {
   if (!confirm('⚠️ This will reset ALL data to defaults. Are you sure?')) return;
   if (!confirm('This action cannot be undone. Confirm reset?')) return;
-  ['users','partners','deals','contracts','communications','activities','reports','seeded'].forEach(k =>
-    localStorage.removeItem('mg_' + k)
-  );
-  localStorage.removeItem('mg_current_user');
-  toast('Data reset. Redirecting...', 'warning');
-  setTimeout(() => window.location.href = 'index.html', 1500);
+  try {
+    await apiFetch('/api/reset', { method: 'POST', body: '{}' });
+    toast('Database reset. Redirecting...', 'warning');
+    setTimeout(() => { window.location.href = 'index.html'; }, 1000);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
 }
 </script>
 </body>

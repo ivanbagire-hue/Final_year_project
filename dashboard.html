@@ -81,7 +81,7 @@
 <script src="assets/app.js"></script>
 <script src="assets/sidebar.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Dashboard');
   document.getElementById('topbar-date').textContent = new Date().toLocaleDateString('en-ZA', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
