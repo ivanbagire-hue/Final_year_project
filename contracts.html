@@ -121,9 +121,10 @@
 let editId = null;
 const statusColors = { Active:'badge-success', Expired:'badge-danger', Pending:'badge-warning', Renewed:'badge-info' };
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Contracts');
+  if (!canWrite('contracts')) document.querySelector('button[onclick="openAdd()"]').style.display = 'none';
   checkExpiryAlerts();
   renderTable();
   document.getElementById('search').addEventListener('input', renderTable);
@@ -157,7 +158,8 @@ function renderTable() {
   document.getElementById('contract-count').textContent = `${data.length} contract(s)`;
   document.getElementById('contracts-table').innerHTML = data.length ? data.map((c, i) => {
     const d = deals.find(x => x.id === c.deal_id);
-    const isExpiringSoon = c.end_date && (new Date(c.end_date) - new Date()) / (1000*60*60*24) <= 30 && c.status === 'Active';
+    const daysUntilExpiry = c.end_date ? (new Date(`${c.end_date}T23:59:59`) - new Date()) / (1000*60*60*24) : null;
+    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30 && c.status === 'Active';
     return `<tr ${isExpiringSoon ? 'style="background:#fffaf0;"' : ''}>
       <td>${i+1}</td>
       <td><code style="font-size:0.8rem;">${c.contract_number}</code></td>
@@ -167,9 +169,11 @@ function renderTable() {
       <td>${fmtDate(c.end_date)}</td>
       <td><span class="badge ${statusColors[c.status]||'badge-muted'}">${c.status}</span></td>
       <td>
-        <button class="btn btn-sm btn-outline" onclick="editContract(${c.id})">✏️</button>
-        <button class="btn btn-sm btn-success" onclick="renewContract(${c.id})" title="Renew">🔄</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteContract(${c.id})">🗑</button>
+        ${c.file ? `<a class="btn btn-sm btn-outline" href="/api/contracts/${c.id}/file" title="Download ${escapeHtml(c.file)}">⬇</a>` : ''}
+        ${canWrite('contracts') ? `
+          <button class="btn btn-sm btn-outline" onclick="editContract(${c.id})">✏️</button>
+          <button class="btn btn-sm btn-success" onclick="renewContract(${c.id})" title="Renew">🔄</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteContract(${c.id})">🗑</button>` : ''}
       </td>
     </tr>`;
   }).join('') : `<tr><td colspan="8"><div class="empty-state"><div class="icon">📄</div><p>No contracts found.</p></div></td></tr>`;
@@ -184,6 +188,7 @@ function openAdd() {
   editId = null;
   document.getElementById('modal-title').textContent = 'New Contract';
   ['c-id','c-number','c-name','c-start','c-end'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('c-file').value = '';
   document.getElementById('c-status').value = 'Active';
   populateDeals(null);
   // Auto-generate contract number
@@ -204,64 +209,91 @@ function editContract(id) {
   document.getElementById('c-status').value = c.status;
   document.getElementById('c-start').value = c.start_date || '';
   document.getElementById('c-end').value = c.end_date || '';
+  document.getElementById('c-file').value = '';
   populateDeals(c.deal_id);
   openModal('contract-modal');
 }
 
-function saveContract() {
+async function saveContract() {
   const number = document.getElementById('c-number').value.trim();
   const name = document.getElementById('c-name').value.trim();
   if (!number || !name) { toast('Contract number and name are required.', 'error'); return; }
 
   const contracts = DB.get('contracts');
+  const startDate = document.getElementById('c-start').value;
+  const endDate = document.getElementById('c-end').value;
+  if (startDate && endDate && endDate < startDate) { toast('End date cannot be before start date.', 'error'); return; }
   const dealId = parseInt(document.getElementById('c-deal').value) || null;
+  const selectedFile = document.getElementById('c-file').files[0];
+  let fileData = null;
+  if (selectedFile) {
+    if (selectedFile.size > 5 * 1024 * 1024) { toast('Contract files must be 5 MB or smaller.', 'error'); return; }
+    fileData = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Could not read the selected file.'));
+      reader.readAsDataURL(selectedFile);
+    }).catch(error => { toast(error.message, 'error'); return null; });
+    if (!fileData) return;
+  }
   const obj = {
     contract_number: number, contract_name: name, deal_id: dealId,
     status: document.getElementById('c-status').value,
-    start_date: document.getElementById('c-start').value,
-    end_date: document.getElementById('c-end').value,
-    file: document.getElementById('c-file').files[0]?.name || null,
+    start_date: startDate,
+    end_date: endDate,
+    file: selectedFile?.name || (editId ? contracts.find(c => c.id === editId)?.file : null),
+    file_name: selectedFile?.name || undefined,
+    file_data: fileData || undefined,
     created_at: new Date().toISOString().split('T')[0]
   };
 
   if (editId) {
     const idx = contracts.findIndex(c => c.id === editId);
     contracts[idx] = { ...contracts[idx], ...obj };
-    logActivity(`Contract "${name}" updated`, '✏️');
     toast('Contract updated!');
   } else {
     obj.id = nextId(contracts);
     contracts.push(obj);
-    logActivity(`Contract "${number}" created`, '📄');
     toast('Contract created!');
   }
-  DB.set('contracts', contracts);
+  try {
+    await DB.set('contracts', contracts);
+    await logActivity(editId ? `Contract "${name}" updated` : `Contract "${number}" created`, editId ? '✏️' : '📄');
+  } catch { return; }
   closeModal('contract-modal');
   renderTable();
   checkExpiryAlerts();
 }
 
-function renewContract(id) {
+async function renewContract(id) {
   const contracts = DB.get('contracts');
   const idx = contracts.findIndex(c => c.id === id);
   if (idx === -1) return;
   const c = contracts[idx];
   const newEnd = prompt('Enter new end date (YYYY-MM-DD):', c.end_date || '');
   if (!newEnd) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newEnd) || (c.start_date && newEnd < c.start_date)) {
+    toast('Enter a valid end date that is not before the start date.', 'error');
+    return;
+  }
   contracts[idx] = { ...c, status: 'Renewed', end_date: newEnd };
-  DB.set('contracts', contracts);
-  logActivity(`Contract "${c.contract_name}" renewed`, '🔄');
+  try {
+    await DB.set('contracts', contracts);
+    await logActivity(`Contract "${c.contract_name}" renewed`, '🔄');
+  } catch { return; }
   toast('Contract renewed!', 'success');
   renderTable();
   checkExpiryAlerts();
 }
 
-function deleteContract(id) {
+async function deleteContract(id) {
   if (!confirm('Delete this contract?')) return;
   const contracts = DB.get('contracts');
   const c = contracts.find(x => x.id === id);
-  DB.set('contracts', contracts.filter(x => x.id !== id));
-  logActivity(`Contract "${c?.contract_name}" deleted`, '🗑');
+  try {
+    await DB.set('contracts', contracts.filter(x => x.id !== id));
+    await logActivity(`Contract "${c?.contract_name}" deleted`, '🗑');
+  } catch { return; }
   toast('Contract deleted.', 'warning');
   renderTable();
 }

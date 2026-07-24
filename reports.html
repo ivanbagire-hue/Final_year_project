@@ -60,7 +60,7 @@
           <div class="card">
             <div class="card-header">
               <h3>📋 Report History</h3>
-              <button class="btn btn-sm btn-primary" onclick="generateReport()">Generate Report</button>
+              <button class="btn btn-sm btn-primary" id="generate-report-button" onclick="generateReport()">Generate Report</button>
             </div>
             <div class="card-body" style="padding:0;">
               <div class="table-wrap">
@@ -94,9 +94,10 @@
 <script src="assets/app.js"></script>
 <script src="assets/sidebar.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Reports');
+  if (!canWrite('reports')) document.getElementById('generate-report-button').style.display = 'none';
   renderAll();
 });
 
@@ -183,13 +184,15 @@ function renderAll() {
     : '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:16px;">No reports generated yet.</td></tr>';
 }
 
-function generateReport() {
+async function generateReport() {
   const u = getCurrentUser();
   const reports = DB.get('reports');
   const name = `Monthly Summary – ${new Date().toLocaleDateString('en-ZA', {month:'long', year:'numeric'})}`;
   reports.unshift({ id: nextId(reports), report_name: name, generated_by: u?.fullname || 'System', generated_date: new Date().toISOString().split('T')[0] });
-  DB.set('reports', reports);
-  logActivity(`Report "${name}" generated`, '📊');
+  try {
+    await DB.set('reports', reports);
+    await logActivity(`Report "${name}" generated`, '📊');
+  } catch { return; }
   toast('Report generated!');
   renderAll();
 }

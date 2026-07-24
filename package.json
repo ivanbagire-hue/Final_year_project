@@ -1,0 +1,15 @@
+{
+  "name": "manics-partnership-management-system",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Database-backed partnership management system for Manics Ltd",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check assets/app.js && node --check assets/sidebar.js",
+    "test": "node --test tests/api.test.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

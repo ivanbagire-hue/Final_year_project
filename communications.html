@@ -94,9 +94,10 @@ let currentTab = 'all';
 const typeIcons = { Meeting:'📅', Email:'📧', Call:'📞', Note:'📝' };
 const typeColors = { Meeting:'badge-info', Email:'badge-success', Call:'badge-warning', Note:'badge-muted' };
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Communications');
+  if (!canWrite('communications')) document.querySelector('button[onclick="openAdd()"]').style.display = 'none';
   renderGrid();
   document.getElementById('search').addEventListener('input', renderGrid);
 });
@@ -130,9 +131,9 @@ function renderGrid() {
           <div class="card-body">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
               <span class="badge ${typeColors[c.type]||'badge-muted'}">${typeIcons[c.type]||'💬'} ${c.type}</span>
-              <div style="display:flex;gap:6px;">
+              <div style="display:flex;gap:6px;">${canWrite('communications') ? `
                 <button class="btn btn-sm btn-outline" onclick="editComm(${c.id})">✏️</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteComm(${c.id})">🗑</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteComm(${c.id})">🗑</button>` : ''}
               </div>
             </div>
             <h4 style="font-size:0.92rem;margin-bottom:6px;">${c.subject}</h4>
@@ -186,7 +187,7 @@ function editComm(id) {
   openModal('comm-modal');
 }
 
-function saveComm() {
+async function saveComm() {
   const subject = document.getElementById('cm-subject').value.trim();
   const message = document.getElementById('cm-message').value.trim();
   if (!subject || !message) { toast('Subject and message are required.', 'error'); return; }
@@ -206,23 +207,24 @@ function saveComm() {
   if (editId) {
     const idx = comms.findIndex(c => c.id === editId);
     comms[idx] = { ...comms[idx], ...obj };
-    logActivity(`Communication "${subject}" updated`, '✏️');
     toast('Updated!');
   } else {
     obj.id = nextId(comms);
     comms.push(obj);
-    logActivity(`${obj.type} recorded: "${subject}"`, typeIcons[obj.type] || '💬');
     toast('Communication recorded!');
   }
-  DB.set('communications', comms);
+  try {
+    await DB.set('communications', comms);
+    await logActivity(editId ? `Communication "${subject}" updated` : `${obj.type} recorded: "${subject}"`, editId ? '✏️' : (typeIcons[obj.type] || '💬'));
+  } catch { return; }
   closeModal('comm-modal');
   renderGrid();
 }
 
-function deleteComm(id) {
+async function deleteComm(id) {
   if (!confirm('Delete this communication record?')) return;
   const comms = DB.get('communications');
-  DB.set('communications', comms.filter(x => x.id !== id));
+  try { await DB.set('communications', comms.filter(x => x.id !== id)); } catch { return; }
   toast('Deleted.', 'warning');
   renderGrid();
 }

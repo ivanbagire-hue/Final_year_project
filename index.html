@@ -28,12 +28,12 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="checkbox" id="remember" /> Remember me
         </label>
-        <a href="#" style="color:var(--primary);text-decoration:none;">Forgot password?</a>
+        <span title="Contact an administrator to reset your password" style="color:var(--muted);">Password help: administrator</span>
       </div>
       <button type="submit" class="btn btn-primary btn-block">Sign In</button>
     </form>
     <p style="text-align:center;margin-top:20px;font-size:0.78rem;color:var(--muted);">
-      Demo: admin@manicsgroup.co.za / admin123
+      Demo administrator: admin@manicsgroup.co.za / admin123
     </p>
     <p style="text-align:center;margin-top:8px;font-size:0.75rem;color:var(--muted);">
       © 2026 Manics Ltd · Your Taste, Our Passion!
@@ -42,27 +42,29 @@
 
   <script src="assets/app.js"></script>
   <script>
-    // Clear any stale session so login page always shows fresh
-    localStorage.removeItem('mg_current_user');
-    // Force re-seed if data version changed
-    if (localStorage.getItem('mg_seeded') !== '"v2_rwf"') {
-      ['mg_deals','mg_partners','mg_contracts','mg_communications','mg_activities','mg_users','mg_seeded'].forEach(k => localStorage.removeItem(k));
-    }
-    seedData();
+    document.addEventListener('appready', () => {
+      if (getCurrentUser()) window.location.href = 'dashboard.html';
+    });
 
-    document.getElementById('login-form').addEventListener('submit', e => {
+    document.getElementById('login-form').addEventListener('submit', async e => {
       e.preventDefault();
       const email = document.getElementById('email').value.trim();
       const pass = document.getElementById('password').value;
-      const users = DB.get('users');
-      const user = users.find(u => u.email === email && u.password === pass && u.active);
-      if (user) {
-        DB.setObj('current_user', user);
+      const button = e.currentTarget.querySelector('button[type="submit"]');
+      button.disabled = true;
+      button.textContent = 'Signing in…';
+      try {
+        await apiFetch('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password: pass, remember: document.getElementById('remember').checked })
+        });
         window.location.href = 'dashboard.html';
-      } else {
+      } catch (error) {
         const err = document.getElementById('login-error');
-        err.textContent = 'Invalid email or password. Please try again.';
+        err.textContent = error.message;
         err.style.display = 'block';
+        button.disabled = false;
+        button.textContent = 'Sign In';
       }
     });
   </script>

@@ -136,9 +136,10 @@
 let editId = null;
 const statusColors = { New:'badge-info', Negotiation:'badge-warning', Approved:'badge-success', Rejected:'badge-danger', Completed:'badge-primary' };
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('appready', () => {
   requireAuth();
   renderSidebar('Deals');
+  if (!canWrite('deals')) document.querySelector('button[onclick="openAdd()"]').style.display = 'none';
   renderPills();
   renderTable();
   document.getElementById('search').addEventListener('input', renderTable);
@@ -187,8 +188,9 @@ function renderTable() {
       <td><span class="badge ${statusColors[d.status]||'badge-muted'}">${d.status}</span></td>
       <td>
         <button class="btn btn-sm btn-outline" onclick="viewDeal(${d.id})">👁</button>
-        <button class="btn btn-sm btn-outline" onclick="editDeal(${d.id})">✏️</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteDeal(${d.id})">🗑</button>
+        ${canWrite('deals') ? `
+          <button class="btn btn-sm btn-outline" onclick="editDeal(${d.id})">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDeal(${d.id})">🗑</button>` : ''}
       </td>
     </tr>`;
   }).join('') : `<tr><td colspan="8"><div class="empty-state"><div class="icon">💼</div><p>No deals found.</p></div></td></tr>`;
@@ -226,7 +228,7 @@ function editDeal(id) {
   openModal('deal-modal');
 }
 
-function saveDeal() {
+async function saveDeal() {
   const name = document.getElementById('d-name').value.trim();
   const amount = parseFloat(document.getElementById('d-amount').value) || 0;
   const partnerId = parseInt(document.getElementById('d-partner').value);
@@ -245,26 +247,29 @@ function saveDeal() {
   if (editId) {
     const idx = deals.findIndex(d => d.id === editId);
     deals[idx] = { ...deals[idx], ...obj };
-    logActivity(`Deal "${name}" updated`, '✏️');
     toast('Deal updated!');
   } else {
     obj.id = nextId(deals);
     deals.push(obj);
-    logActivity(`New deal "${name}" created`, '💼');
     toast('Deal created!');
   }
-  DB.set('deals', deals);
+  try {
+    await DB.set('deals', deals);
+    await logActivity(editId ? `Deal "${name}" updated` : `New deal "${name}" created`, editId ? '✏️' : '💼');
+  } catch { return; }
   closeModal('deal-modal');
   renderTable();
   renderPills();
 }
 
-function deleteDeal(id) {
+async function deleteDeal(id) {
   if (!confirm('Delete this deal?')) return;
   const deals = DB.get('deals');
   const d = deals.find(x => x.id === id);
-  DB.set('deals', deals.filter(x => x.id !== id));
-  logActivity(`Deal "${d?.deal_name}" deleted`, '🗑');
+  try {
+    await DB.set('deals', deals.filter(x => x.id !== id));
+    await logActivity(`Deal "${d?.deal_name}" deleted`, '🗑');
+  } catch { return; }
   toast('Deal deleted.', 'warning');
   renderTable();
   renderPills();
